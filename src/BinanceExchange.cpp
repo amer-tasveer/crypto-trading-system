@@ -9,6 +9,7 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <stdexcept> // Include for std::runtime_error
 
 // Aliases for Boost namespaces
 namespace beast = boost::beast;
@@ -24,9 +25,6 @@ BinanceExchange::BinanceExchange()
     , ctx_(ssl::context::tlsv12_client)
     , resolver_(ioc_.get_executor())
     , ws_(ioc_, ctx_) {
-    on_generic_ = [](const json::value& data) {
-        // std::cout << "Received generic data: " << json::serialize(data) << std::endl;
-    };
     
     // Set up SSL context for client
     ctx_.set_default_verify_paths();
@@ -38,12 +36,31 @@ BinanceExchange::~BinanceExchange() noexcept {
 }
 
 void BinanceExchange::initialize(const std::string& host, const std::string& port,
-                                 const std::string& target, const std::vector<std::string>& streams) {
+                                 const std::string& target, const boost::json::value& subscription_info) {
     std::cout << "Initializing Binance connection..." << std::endl;
     this->host_ = host;
     this->port_ = port;
     this->target_ = target;
-    this->streams_ = streams;
+    this->subscription_info_ = subscription_info;
+    
+    if (subscription_info.is_object() && subscription_info.as_object().contains("streams")) {
+        const auto& streams_val = subscription_info.as_object().at("streams");
+        if (streams_val.is_array()) {
+            // Populate the streams_ vector from the JSON array
+            for (const auto& val : streams_val.as_array()) {
+                if (val.is_string()) {
+                    streams_.push_back(val.as_string().c_str());
+                }
+            }
+        }
+    } else {
+        throw std::runtime_error("Invalid subscription_info format. 'streams' array is missing.");
+    }
+    on_generic_ = [](const json::value& data) {
+        std::cout << "Received generic data: " << json::serialize(data) << std::endl;
+    };
+
+
     
     std::cout << "Initialization complete. Ready to start connection." << std::endl;
 }
@@ -184,7 +201,7 @@ void BinanceExchange::on_ssl_handshake(boost::system::error_code ec) {
 
     ws_.set_option(websocket::stream_base::decorator(
         [](websocket::request_type& req) {
-            req.set(http::field::user_agent, "Binance-Boost-WebSocket-Client");
+            req.set(http::field::user_agent, "Binance-Client/1.0");
         }));
 
     // Perform the websocket handshake

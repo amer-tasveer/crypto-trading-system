@@ -7,7 +7,6 @@
 *.o
 *.obj
 
-/build
 
 # Precompiled Headers
 *.gch
@@ -41,3 +40,15 @@
 
 # debug information files
 *.dwo
+
+# CMake specific files
+build/
+cmake-build-debug/
+CMakeCache.txt
+CMakeFiles/
+
+# IDE specific files
+.vscode/
+.idea/
+.vs/
+*.sln
