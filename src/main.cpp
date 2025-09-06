@@ -1,110 +1,108 @@
+#include "BinancePipeline.hpp"
+// #include "KrakenPipeline.hpp"
+#include "SPSCQueue.hpp"
+#include "EventBus.hpp"
 #include <iostream>
-#include <vector>
-#include <string>
-#include <thread>
-#include <csignal>
-
-//Boost stuff
 #include <boost/json.hpp>
-#include <boost/lexical_cast.hpp>
+#include <csignal>
+#include <memory>
+#include "utils.hpp"
+namespace json = boost::json;
 
+volatile sig_atomic_t g_running = 1;
 
-#include "CoinbaseExchange.hpp"
-#include "BinanceExchange.hpp"
-#include "types.hpp" 
-#include "utils.hpp" 
-
-//Strats
-#include "./strats/ArbitrageStrat.hpp"
-
-
+void signal_handler(int) {
+    g_running = 0;
+}
 
 int main() {
     try {
+        // Set up signal handling shutdown
+        std::signal(SIGINT, signal_handler);
+        std::signal(SIGTERM, signal_handler);
 
-    ArbitrageStrat arbi_strat;
-
-    std::unique_ptr<CoinbaseExchange> coinbase_exchange;
-    std::unique_ptr<BinanceExchange> binance_exchange;
-
-    // Create the exchange client instance.
-    coinbase_exchange = std::make_unique<CoinbaseExchange>();
-    binance_exchange = std::make_unique<BinanceExchange>();
+        // Create queue and event bus
+        SPSCQueue<std::string> queue(8192); 
+        auto event_bus = std::make_shared<EventBus>();
 
 
-    coinbase_exchange->set_match_handler([&arbi_strat](const boost::json::value& data) {
-        const auto& obj = data.as_object();
+        event_bus->subscribe<TradeEvent>([](const TradeEvent& event) {
+            std::cout << "Received TradeEvent: "
+                        << event.data.symbol << ", "
+                        << event.data.price << ", "
+                        << event.data.quantity << ", "
+                        << event.data.trade_time <<", "
+                        << elapsed << "\n";
 
-        TradeData trade_data = {
-            obj.at("product_id").as_string().c_str(),
-            boost::lexical_cast<double>(obj.at("price").as_string().c_str()),
-            boost::lexical_cast<double>(obj.at("size").as_string().c_str()),
-            convert_timestamp_to_milliseconds(obj.at("time").as_string().c_str())
+        });
+
+        event_bus->subscribe<OrderBookDataEvent>([](const OrderBookDataEvent& event) {
+            for (size_t i = 0; i < event.data.bids.size(); ++i) {
+                std::cout << "(" << event.data.bids[i].first << ", " << event.data.bids[i].second << ")";
+                if (i < event.data.bids.size() - 1) {
+                    std::cout << ", ";
+                }
+            }
+            std::cout << "], Ask: [";
+            for (size_t i = 0; i < event.data.asks.size(); ++i) {
+                std::cout << "(" << event.data.asks[i].first << ", " << event.data.asks[i].second << ")";
+                if (i < event.data.asks.size() - 1) {
+                    std::cout << ", ";
+                }
+            }
+            std::cout << "]" << std::endl;
+        });
+
+        // Create and configure pipeline
+        BinancePipeline pipeline(queue, event_bus);
+
+        json::object subscription_info = {
+            {"streams", json::array{"btcusdt@trade"}}
+            // {"streams", json::array{"btcusdt@depth@100ms"}}
         };
 
-        arbi_strat.setPrice(1,trade_data.symbol, trade_data.price);
+        // json::object subscription_info = {
+        //     {"product_ids", json::array{"BTC-USD"}},
+        //     {"channels", json::array{"full"}}
 
-        std::cout << "Coinbase TRADE - Symbol: " << trade_data.symbol
-                << " | Price: " << trade_data.price
-                << " | Quantity: " << trade_data.quantity
-                << " | Time: " << convert_milliseconds_to_timestamp(trade_data.time) << std::endl;
-    });
+        // };
 
-    binance_exchange->set_trade_handler([&arbi_strat](const boost::json::value& data) {
-        const auto& obj = data.as_object();
+        // json::object subscription_info = {
+        //     {"symbol", json::array{"BTC/USD", "MATIC/GBP"}},
+        //     {"channel", json::array{"trade"}}
 
-        TradeData trade_data = {
-            obj.at("s").as_string().c_str(),
-            boost::lexical_cast<double>(obj.at("p").as_string().c_str()),
-            boost::lexical_cast<double>(obj.at("q").as_string().c_str()),
-            obj.at("T").as_int64()
-        };
-        arbi_strat.setPrice(2,trade_data.symbol, trade_data.price);
+        // };
 
-        std::cout << "Binance TRADE - Symbol: " << trade_data.symbol
-                << " | Price: " << trade_data.price
-                << " | Quantity: " << trade_data.quantity
-                << " | Time: " << convert_milliseconds_to_timestamp(trade_data.time) << std::endl;
-    });
+        // boost::json::object subscription_info;
+        // subscription_info["method"] = "subscribe";
 
-    
-    std::vector<std::string> product_ids = {"BTC-USD"};
-    
-    std::vector<std::string> streams = {
-            "btcusdt@trade"   
-        };
+        // boost::json::object params;
+        // params["channel"] = "book";   // channel type
+        // params["symbol"] = json::array{ "BTC/USD" }; // symbols as array
 
-    binance_exchange->initialize("stream.binance.com", "9443", "", streams);
-    binance_exchange->start_async();
+        // subscription_info["params"] = params;
 
-    coinbase_exchange->initialize("ws-feed.exchange.coinbase.com", "443", "/", product_ids);
-    coinbase_exchange->start_async();
+        pipeline.initialize("stream.binance.com", "443", "/ws", subscription_info);
 
-    std::cout << "Starting io_context. Press Ctrl+C to exit." << std::endl;
+        // pipeline.initialize("ws-feed.exchange.coinbase.com", "443", "/", subscription_info);
 
-    std::thread coinbase_thread([&coinbase_exchange]() {
-        coinbase_exchange->run();
-    });
+        // pipeline.initialize("ws.kraken.com", "443", "/v2", subscription_info);
 
-    std::thread binance_thread([&binance_exchange]() {
-        binance_exchange->run();
-    });
+        // Start pipeline
+        pipeline.start();
 
-    while (true) {
-        arbi_strat.checkArbitrage();
-        // Check for arbitrage every 100ms.
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Run until interrupted
+        while (g_running) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        // Stop pipeline
+        std::cout << "Shutting down..." << std::endl;
+        pipeline.stop();
+
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Main exception: " << e.what() << std::endl;
+        return 1;
     }
-
-
-    coinbase_thread.join();
-    binance_thread.join();
-
-} catch (const std::exception& e) {
-    std::cerr << "Exception: " << e.what() << std::endl;
-    return 1;
-}
-
-std::cout << "Program finished." << std::endl;
-return 0;
 }
