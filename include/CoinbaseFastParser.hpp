@@ -7,6 +7,7 @@
 #include <vector>
 #include <utility>
 #include "types.hpp"
+#include "utils.hpp"
 
 class CoinbaseFastParser {
 private:
@@ -100,119 +101,73 @@ public:
         return nullptr;
     }
 
-    // Parse array of [price, quantity] pairs
-    static inline std::vector<std::pair<double, double>> parse_array(const char* start, const char* end) {
-        std::vector<std::pair<double, double>> result;
-        const char* p = start;
-        
-        // Skip opening bracket
-        if (p < end && *p == '[') ++p;
-        
-        while (p < end && *p != ']') {
-            // Skip whitespace
-            while (p < end && (*p == ' ' || *p == '\t' || *p == '\n')) ++p;
-            
-            // Expect opening bracket of pair
-            if (p < end && *p == '[') ++p;
-            
-            // Parse price
-            while (p < end && (*p == ' ' || *p == '\t')) ++p;
-            const char* price_start = p;
-            if (p < end && *p == '"') ++p;
-            while (p < end && *p != '"') ++p;
-            double price = parse_double(price_start + 1, p);
-            if (p < end && *p == '"') ++p;
-            
-            // Skip comma and whitespace
-            while (p < end && (*p == ',' || *p == ' ' || *p == '\t')) ++p;
-            
-            // Parse quantity
-            const char* qty_start = p;
-            if (p < end && *p == '"') ++p;
-            while (p < end && *p != '"') ++p;
-            double quantity = parse_double(qty_start + 1, p);
-            if (p < end && *p == '"') ++p;
-            
-            result.emplace_back(price, quantity);
-            
-            // Skip closing bracket and comma
-            while (p < end && (*p == ']' || *p == ',' || *p == ' ' || *p == '\t' || *p == '\n')) ++p;
-        }
-        
-        return result;
-    }
-
     // Parse the depth update JSON
     static inline OrderBookData parse_depth_update(const char* json, size_t len) {
         OrderBookData result;
         const char* end = json + len;
 
-        // Parse event type "e"
-        // const char* e_start = find_value_after_key(json, end, "e", 1);
-        // if (e_start) {
-        //     const char* e_end = e_start;
-        //     while (e_end < end && *e_end != '"') ++e_end;
-        //     result.event_type = std::string_view(e_start, e_end - e_start);
-        // }
+        // Parse event time "time"
+        const char* time_start = find_value_after_key(json, end, "time", 4);
+        if (time_start) {
+            result.timestamp = get_time_now();
 
-        // Parse event time "E"
-        const char* E_start = find_value_after_key(json, end, "E", 1);
-        if (E_start) {
-            const char* E_end = E_start;
-            while (E_end < end && (*E_end >= '0' && *E_end <= '9')) ++E_end;
-            result.event_time = parse_int64(E_start, E_end);
-        }
+        } 
 
-        // Parse symbol "s"
-        const char* s_start = find_value_after_key(json, end, "s", 1);
+        // Parse symbol "product_id"
+        const char* s_start = find_value_after_key(json, end, "product_id", 10);
         if (s_start) {
             const char* s_end = s_start;
             while (s_end < end && *s_end != '"') ++s_end;
             result.symbol = std::string_view(s_start, s_end - s_start);
         }
 
-        // Parse first update ID "U"
-        const char* U_start = find_value_after_key(json, end, "U", 1);
-        if (U_start) {
-            const char* U_end = U_start;
-            while (U_end < end && (*U_end >= '0' && *U_end <= '9')) ++U_end;
-            result.first_update_id = parse_int64(U_start, U_end);
-        }
-
-        // Parse final update ID "u"
-        const char* u_start = find_value_after_key(json, end, "u", 1);
-        if (u_start) {
-            const char* u_end = u_start;
-            while (u_end < end && (*u_end >= '0' && *u_end <= '9')) ++u_end;
-            result.final_update_id = parse_int64(u_start, u_end);
-        }
-
-        // Parse bids "b"
-        const char* b_start = find_value_after_key(json, end, "b", 1);
-        if (b_start) {
-            const char* b_end = b_start;
+        // Parse changes "changes"
+        const char* changes_start = find_value_after_key(json, end, "changes", 7);
+        if (changes_start) {
+            const char* changes_end = changes_start;
             int bracket_count = 1;
-            while (b_end < end && bracket_count > 0) {
-                if (*b_end == '[') ++bracket_count;
-                if (*b_end == ']') --bracket_count;
-                ++b_end;
+            while (changes_end < end && bracket_count > 0) {
+                if (*changes_end == '[') ++bracket_count;
+                if (*changes_end == ']') --bracket_count;
+                ++changes_end;
             }
-            result.bids = parse_array(b_start, b_end);
-        }
 
-        // Parse asks "a"
-        const char* a_start = find_value_after_key(json, end, "a", 1);
-        if (a_start) {
-            const char* a_end = a_start;
-            int bracket_count = 1;
-            while (a_end < end && bracket_count > 0) {
-                if (*a_end == '[') ++bracket_count;
-                if (*a_end == ']') --bracket_count;
-                ++a_end;
+            // Iterate through the array of changes
+            const char* current = changes_start;
+            while (current < changes_end) {
+                if (*current == '[') {
+                    // Found the start of a new change entry
+                    const char* type_start = current + 2; // Skip `["`
+                    const char* type_end = type_start;
+                    while (type_end < changes_end && *type_end != '"') ++type_end;
+
+                    const char* price_start = type_end + 3; // Skip `", "`
+                    const char* price_end = price_start;
+                    while (price_end < changes_end && (*price_end >= '0' && *price_end <= '9' || *price_end == '.')) ++price_end;
+
+                    const char* size_start = price_end + 3; // Skip `", "`
+                    const char* size_end = size_start;
+                    while (size_end < changes_end && (*size_end >= '0' && *size_end <= '9' || *size_end == '.')) ++size_end;
+
+                    double price = parse_double(price_start, price_end);
+                    double size = parse_double(size_start, size_end);
+                    std::string_view type(type_start, type_end - type_start);
+
+                    if (type == "buy") {
+                        result.bids.push_back({price, size});
+                    } else if (type == "sell") {
+                        result.asks.push_back({price, size});
+                    }
+
+                    // Move to the next entry
+                    current = size_end;
+                    while (current < changes_end && *current != ']') ++current;
+                    if (current < changes_end) ++current; // Skip the ']'
+                } else {
+                    ++current;
+                }
             }
-            result.asks = parse_array(a_start, a_end);
         }
-
         return result;
     }
 };

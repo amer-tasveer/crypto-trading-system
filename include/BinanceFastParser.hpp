@@ -1,5 +1,6 @@
 #pragma once
 
+#include <simdjson.h>
 #include <cstring>
 #include <cstdint>
 #include <string_view>
@@ -162,7 +163,7 @@ public:
             const char* E_end = E_start;
             while (E_end < end && (*E_end >= '0' && *E_end <= '9')) ++E_end;
             // result.event_time = parse_int64(E_start, E_end);
-            result.event_time = get_time_now();
+            result.timestamp = get_time_now();
         
         }
 
@@ -179,7 +180,7 @@ public:
         if (U_start) {
             const char* U_end = U_start;
             while (U_end < end && (*U_end >= '0' && *U_end <= '9')) ++U_end;
-            result.first_update_id = parse_int64(U_start, U_end);
+            result.id = parse_int64(U_start, U_end);
         }
 
         // Parse final update ID "u"
@@ -187,7 +188,7 @@ public:
         if (u_start) {
             const char* u_end = u_start;
             while (u_end < end && (*u_end >= '0' && *u_end <= '9')) ++u_end;
-            result.final_update_id = parse_int64(u_start, u_end);
+            result.id = parse_int64(u_start, u_end);
         }
 
         // Parse bids "b"
@@ -218,4 +219,9 @@ public:
 
         return result;
     }
+
+    static inline TickerData parse_ticker(const char* json, size_t len) {
+        
+    }
+
 };

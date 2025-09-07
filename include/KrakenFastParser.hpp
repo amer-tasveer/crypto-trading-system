@@ -101,121 +101,101 @@ public:
         return nullptr;
     }
 
-    // Parse array of [price, quantity] pairs
-    static inline std::vector<std::pair<double, double>> parse_array(const char* start, const char* end) {
-        std::vector<std::pair<double, double>> result;
+    static inline std::vector<PriceLevel> parse_price_qty_array(const char* start, const char* end) {
+        std::vector<PriceLevel> result;
         const char* p = start;
         
-        // Skip opening bracket
-        if (p < end && *p == '[') ++p;
+        // Skip whitespace and find opening bracket
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\n')) ++p;
+        if (p >= end || *p != '[') return result;
+        ++p; // Skip opening bracket
         
-        while (p < end && *p != ']') {
+        while (p < end) {
             // Skip whitespace
             while (p < end && (*p == ' ' || *p == '\t' || *p == '\n')) ++p;
             
-            // Expect opening bracket of pair
-            if (p < end && *p == '[') ++p;
+            // Check for end of array
+            if (p >= end || *p == ']') break;
             
-            // Parse price
-            while (p < end && (*p == ' ' || *p == '\t')) ++p;
-            const char* price_start = p;
-            if (p < end && *p == '"') ++p;
-            while (p < end && *p != '"') ++p;
-            double price = parse_double(price_start + 1, p);
-            if (p < end && *p == '"') ++p;
+            // Find object start
+            if (*p == '{') {
+                const char* obj_start = p;
+                const char* obj_end = p;
+                int brace_count = 1;
+                ++obj_end;
+                
+                // Find matching closing brace
+                while (obj_end < end && brace_count > 0) {
+                    if (*obj_end == '{') ++brace_count;
+                    else if (*obj_end == '}') --brace_count;
+                    ++obj_end;
+                }
+                
+                if (brace_count == 0) {
+                    // Parse price and qty from this object
+                    const char* price_val = find_value_after_key(obj_start, obj_end, "price", 5);
+                    const char* qty_val = find_value_after_key(obj_start, obj_end, "qty", 3);
+                    
+                    if (price_val && qty_val) {
+                        // Find end of price value
+                        const char* price_end = price_val;
+                        while (price_end < obj_end && (*price_end == '.' || *price_end == '-' || (*price_end >= '0' && *price_end <= '9'))) {
+                            ++price_end;
+                        }
+                        
+                        // Find end of qty value  
+                        const char* qty_end = qty_val;
+                        while (qty_end < obj_end && (*qty_end == '.' || *qty_end == '-' || (*qty_end >= '0' && *qty_end <= '9'))) {
+                            ++qty_end;
+                        }
+                        
+                        double price = parse_double(price_val, price_end);
+                        double qty = parse_double(qty_val, qty_end);
+                        
+                        result.emplace_back(price, qty);
+                    }
+                }
+                
+                p = obj_end;
+            }
             
             // Skip comma and whitespace
-            while (p < end && (*p == ',' || *p == ' ' || *p == '\t')) ++p;
-            
-            // Parse quantity
-            const char* qty_start = p;
-            if (p < end && *p == '"') ++p;
-            while (p < end && *p != '"') ++p;
-            double quantity = parse_double(qty_start + 1, p);
-            if (p < end && *p == '"') ++p;
-            
-            result.emplace_back(price, quantity);
-            
-            // Skip closing bracket and comma
-            while (p < end && (*p == ']' || *p == ',' || *p == ' ' || *p == '\t' || *p == '\n')) ++p;
+            while (p < end && (*p == ',' || *p == ' ' || *p == '\t' || *p == '\n')) ++p;
         }
         
         return result;
     }
 
-    // Parse the depth update JSON
-    static inline OrderBookData parse_depth_update(const char* json, size_t len) {
-        OrderBookData result;
-        const char* end = json + len;
 
-        // Parse event type "e"
-        // const char* e_start = find_value_after_key(json, end, "e", 1);
-        // if (e_start) {
-        //     const char* e_end = e_start;
-        //     while (e_end < end && *e_end != '"') ++e_end;
-        //     result.event_type = std::string_view(e_start, e_end - e_start);
-        // }
-
-        // Parse event time "E"
-        const char* E_start = find_value_after_key(json, end, "E", 1);
-        if (E_start) {
-            const char* E_end = E_start;
-            while (E_end < end && (*E_end >= '0' && *E_end <= '9')) ++E_end;
-            // result.event_time = parse_int64(E_start, E_end);
-            result.event_time = get_time_now();
+    static inline int64_t parse_kraken_timestamp(const char* start, size_t len) {
+        if (len < 20) return 0;
+        int year, month, day, hour, minute, second;
+        int nanoseconds = 0;
         
+        sscanf(start, "%d-%d-%dT%d:%d:%d", &year, &month, &day, &hour, &minute, &second);
+
+        const char* dot = strchr(start, '.');
+        if (dot) {
+            int i = 0;
+            char ns_str[10] = {0};
+            const char* p = dot + 1;
+            while (*p >= '0' && *p <= '9' && i < 9) ns_str[i++] = *p++;
+            nanoseconds = atoi(ns_str);
+            for (int j = i; j < 9; j++) nanoseconds *= 10;
         }
 
-        // Parse symbol "s"
-        const char* s_start = find_value_after_key(json, end, "s", 1);
-        if (s_start) {
-            const char* s_end = s_start;
-            while (s_end < end && *s_end != '"') ++s_end;
-            result.symbol = std::string_view(s_start, s_end - s_start);
-        }
+        std::tm t{};
+        t.tm_year = year - 1900;
+        t.tm_mon = month - 1;
+        t.tm_mday = day;
+        t.tm_hour = hour;
+        t.tm_min = minute;
+        t.tm_sec = second;
 
-        // Parse first update ID "U"
-        const char* U_start = find_value_after_key(json, end, "U", 1);
-        if (U_start) {
-            const char* U_end = U_start;
-            while (U_end < end && (*U_end >= '0' && *U_end <= '9')) ++U_end;
-            result.first_update_id = parse_int64(U_start, U_end);
-        }
-
-        // Parse final update ID "u"
-        const char* u_start = find_value_after_key(json, end, "u", 1);
-        if (u_start) {
-            const char* u_end = u_start;
-            while (u_end < end && (*u_end >= '0' && *u_end <= '9')) ++u_end;
-            result.final_update_id = parse_int64(u_start, u_end);
-        }
-
-        // Parse bids "b"
-        const char* b_start = find_value_after_key(json, end, "b", 1);
-        if (b_start) {
-            const char* b_end = b_start;
-            int bracket_count = 1;
-            while (b_end < end && bracket_count > 0) {
-                if (*b_end == '[') ++bracket_count;
-                if (*b_end == ']') --bracket_count;
-                ++b_end;
-            }
-            result.bids = parse_array(b_start, b_end);
-        }
-
-        // Parse asks "a"
-        const char* a_start = find_value_after_key(json, end, "a", 1);
-        if (a_start) {
-            const char* a_end = a_start;
-            int bracket_count = 1;
-            while (a_end < end && bracket_count > 0) {
-                if (*a_end == '[') ++bracket_count;
-                if (*a_end == ']') --bracket_count;
-                ++a_end;
-            }
-            result.asks = parse_array(a_start, a_end);
-        }
-
-        return result;
+        auto time_point = std::chrono::system_clock::from_time_t(std::mktime(&t));
+        auto duration_since_epoch = time_point.time_since_epoch();
+        int64_t nanoseconds_total = std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch).count() + nanoseconds;
+        
+        return nanoseconds_total;
     }
 };

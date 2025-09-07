@@ -22,13 +22,12 @@ namespace ssl = net::ssl;
 using tcp = net::ip::tcp;
 namespace json = boost::json;
 
-CoinbaseExchange::CoinbaseExchange()
+CoinbaseExchange::CoinbaseExchange(SPSCQueue<std::string>& queue)
     : ioc_()
     , ctx_(ssl::context::tlsv12_client)
     , resolver_(ioc_.get_executor())
-    , ws_(ioc_, ctx_) {
+    , ws_(ioc_, ctx_),queue_(queue) {
     
-    on_generic_ = [](const json::value&) {};
     
     ctx_.set_default_verify_paths();
     ctx_.set_verify_mode(boost::asio::ssl::verify_none);
@@ -48,44 +47,43 @@ void CoinbaseExchange::set_credentials(const std::string& api_key, const std::st
 }
 
 void CoinbaseExchange::initialize(const std::string& host, const std::string& port,
-                                  const std::string& target, const boost::json::value& subscription_info) {
+                                  const std::string& target, const boost::json::object& subscription_info) {
     std::cout << "Initializing Coinbase connection..." << std::endl;
     host_ = host;
     port_ = port;
     target_ = target;
     subscription_info_ = subscription_info;
 
-    if (subscription_info_.is_object()) {
-        auto& obj = subscription_info_.as_object();
-
-        if (obj.contains("product_ids")) {
-            auto& v = obj["product_ids"];
-            if (!v.is_array()) {
-                throw std::runtime_error("Coinbase: 'product_ids' must be an array");
-            }
-            for (const auto& id : v.as_array()) {
-                product_ids_.push_back(id.as_string().c_str());
-            }
-        } else {
-            throw std::runtime_error("Coinbase: missing 'product_ids'");
+    if (subscription_info_.contains("product_ids")) {
+        auto& v = subscription_info_["product_ids"];
+        if (!v.is_array()) {
+            throw std::runtime_error("Coinbase: 'product_ids' must be an array");
         }
-
-        if (obj.contains("channels")) {
-            auto& v = obj["channels"];
-            if (!v.is_array()) {
-                throw std::runtime_error("Coinbase: 'channels' must be an array");
-            }
-            for (const auto& ch : v.as_array()) {
-                channels_.push_back(ch.as_string().c_str());
-            }
-        } else {
-            throw std::runtime_error("Coinbase: missing 'channels'");
+        for (const auto& id : v.as_array()) {
+            product_ids_.push_back(id.as_string().c_str());
         }
+    } else {
+        throw std::runtime_error("Coinbase: missing 'product_ids'");
     }
+
+    if (subscription_info_.contains("channels")) {
+        auto& v = subscription_info_["channels"];
+        if (!v.is_array()) {
+            throw std::runtime_error("Coinbase: 'channels' must be an array");
+        }
+        for (const auto& ch : v.as_array()) {
+            channels_.push_back(ch.as_string().c_str());
+        }
+    } else {
+        throw std::runtime_error("Coinbase: missing 'channels'");
+    }
+    
 
     std::cout << "Initialization complete. Ready to start connection." << std::endl;
 }
-
+net::io_context& CoinbaseExchange::get_io_context() {
+    return ioc_;
+}
 void CoinbaseExchange::start_async() {
     std::cout << "Starting Coinbase connection..." << std::endl;
     resolver_.async_resolve(host_, port_,
@@ -189,85 +187,53 @@ void CoinbaseExchange::on_handshake(boost::system::error_code ec) {
 
     std::cout << "WebSocket connected successfully!" << std::endl;
 
-    // Send subscription message
-    if (!subscription_info_.is_null()) {
-        // Add authentication to subscription if needed
-        if (authenticated_) {
-            json::object auth_sub = subscription_info_.as_object();
-            
-            std::string timestamp = get_timestamp();
-            std::string method = "GET";
-            std::string request_path = "/users/self/verify";
-            
-            // Create the prehash string: timestamp + method + request_path + body
-            std::string prehash = timestamp + method + request_path;
-            
-            // Decode the base64 secret and create HMAC
-            std::string decoded_secret = base64_decode(api_secret_);
-            std::string signature = base64_encode(hmac_sha256(decoded_secret, prehash));
-            
-            auth_sub["signature"] = signature;
-            auth_sub["key"] = api_key_;
-            auth_sub["passphrase"] = passphrase_;
-            auth_sub["timestamp"] = timestamp;
-            
-            std::string msg = json::serialize(auth_sub);
-            send_message(msg);
-        } else {
-            std::string msg = json::serialize(subscription_info_);
-            send_message(msg);
-        }
-    }
-
-    do_read();
-}
-
-void CoinbaseExchange::do_read() {
-    ws_.async_read(buffer_, std::bind_front(&CoinbaseExchange::on_read, this));
-}
-
-void CoinbaseExchange::on_read(boost::system::error_code ec, std::size_t bytes_transferred) {
-    boost::ignore_unused(bytes_transferred);
-    if (ec) {
-        std::cerr << "Read error: " << ec.message() << std::endl;
-        return;
-    }
-
-    handle_message();
-    do_read();
-}
-
-void CoinbaseExchange::handle_message() {
-    try {
-        std::string message = beast::buffers_to_string(buffer_.data());
-        buffer_.consume(buffer_.size());
-
-        json::value parsed = json::parse(message);
-        route_message(parsed);
-
-    } catch (const std::exception& e) {
-        std::cerr << "Error handling message: " << e.what() << std::endl;
-    }
-}
-
-void CoinbaseExchange::route_message(const json::value& data) {
-    if (on_generic_) on_generic_(data);
-
-    if (!data.is_object()) return;
-    const auto& obj = data.as_object();
-
-    if (!obj.contains("type")) return;
-    std::string type = obj.at("type").as_string().c_str();
-
-    if (type == "match" && on_trade_) {
-        on_trade_(data);
-    } else if (type == "ticker" && on_ticker_) {
-        on_ticker_(data);
-    } else if (type == "l2update" && on_depth_) {
-        on_depth_(data);
+    // Add authentication to subscription if needed
+    if (authenticated_) {
+        
+        std::string timestamp = get_timestamp();
+        std::string method = "GET";
+        std::string request_path = "/users/self/verify";
+        
+        // Create the prehash string: timestamp + method + request_path + body
+        std::string prehash = timestamp + method + request_path;
+        
+        // Decode the base64 secret and create HMAC
+        std::string decoded_secret = base64_decode(api_secret_);
+        std::string signature = base64_encode(hmac_sha256(decoded_secret, prehash));
+        
+        subscription_info_["signature"] = signature;
+        subscription_info_["key"] = api_key_;
+        subscription_info_["passphrase"] = passphrase_;
+        subscription_info_["timestamp"] = timestamp;
+        
+        std::string msg = json::serialize(subscription_info_);
+        send_message(msg);
     } else {
-        if (on_generic_) on_generic_(data);
+        subscription_info_["type"] = "subscribe";
+
+        std::string msg = json::serialize(subscription_info_);
+        send_message(msg);
     }
+    
+
+    read_message();
+}
+
+
+void CoinbaseExchange::read_message() {
+    ws_.async_read(buffer_, std::bind_front(&CoinbaseExchange::on_read, shared_from_this()));
+}
+
+void CoinbaseExchange::on_read(boost::system::error_code ec, std::size_t) {
+    if (ec) { std::cerr << "Read: " << ec.message() << "\n"; return; }
+
+    std::string msg = beast::buffers_to_string(buffer_.data());
+    buffer_.consume(buffer_.size());
+    if (!queue_.try_push(std::move(msg))) {
+        std::cerr << "Queue full, dropping message\n";
+    }
+
+    read_message();
 }
 
 // Authentication helper methods
@@ -330,12 +296,3 @@ std::string CoinbaseExchange::get_timestamp() const {
     auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
     return std::to_string(timestamp);
 }
-
-// === Handler setters ===
-void CoinbaseExchange::set_trade_handler(std::function<void(const json::value&)> handler) { on_trade_ = std::move(handler); }
-void CoinbaseExchange::set_agg_trade_handler(std::function<void(const json::value&)> handler) { on_agg_trade_ = std::move(handler); }
-void CoinbaseExchange::set_kline_handler(std::function<void(const json::value&)> handler) { on_kline_ = std::move(handler); }
-void CoinbaseExchange::set_ticker_handler(std::function<void(const json::value&)> handler) { on_ticker_ = std::move(handler); }
-void CoinbaseExchange::set_book_ticker_handler(std::function<void(const json::value&)> handler) { on_book_ticker_ = std::move(handler); }
-void CoinbaseExchange::set_depth_handler(std::function<void(const json::value&)> handler) { on_depth_ = std::move(handler); }
-void CoinbaseExchange::set_generic_handler(std::function<void(const json::value&)> handler) { on_generic_ = std::move(handler); }

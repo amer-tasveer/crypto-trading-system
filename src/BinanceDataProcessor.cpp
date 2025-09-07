@@ -8,8 +8,13 @@
 #include <chrono>
 #include <charconv>
 #include "utils.hpp"
+#include "simdjson.h"
+#include <string>
+#include <string_view>
+
 
 namespace json = boost::json;
+static simdjson::ondemand::parser parser;
 
 BinanceDataProcessor::BinanceDataProcessor(SPSCQueue<std::string>& queue, std::shared_ptr<EventBus> event_bus)
     : queue_(queue), event_bus_(event_bus) {}
@@ -44,21 +49,19 @@ void BinanceDataProcessor::parse_and_publish(const std::string& message) {
     const char* start = message.c_str();
     const char* end = start + message.length();
 
-    // 1. Find the start of the "data" object's value (the character '{')
+
     const char* data_start = BinanceFastParser::find_value_after_key(start, end, "data", 4);
-    if (!data_start) return; // "data" key not found
+    if (!data_start) return;
 
-    // 2. Check the event type "e"
     const char* event_type_val = BinanceFastParser::find_value_after_key(data_start, end, "e", 1);
+    const char* symbol_val = BinanceFastParser::find_value_after_key(data_start, end, "s", 1);
 
-    // We expect "trade", which is 5 characters. strncmp is very fast for this.
     if (strncmp(event_type_val, "trade", 5) == 0) {
         TradeEvent trade_event;
-        auto& trade_data = trade_event.data;
+        TradeData& trade_data = trade_event.data;
         trade_data.source = "Binance";
 
         // Extract symbol "s"
-        const char* symbol_val = BinanceFastParser::find_value_after_key(data_start, end, "s", 1);
         if (symbol_val) {
             const char* symbol_end = static_cast<const char*>(memchr(symbol_val, '"', end - symbol_val));
             if (symbol_end) {
@@ -83,9 +86,9 @@ void BinanceDataProcessor::parse_and_publish(const std::string& message) {
         const char* time_val = BinanceFastParser::find_value_after_key(data_start, end, "T", 1);
         if (time_val) {
             // The parser will stop at the next comma or brace
-            // trade_data.trade_time = get_time_now();
+            trade_data.trade_time = get_time_now();
             // trade_data.trade_time = time_val.;
-            trade_data.trade_time = BinanceFastParser::parse_int64(time_val, end) * 10000;
+            // trade_data.trade_time = BinanceFastParser::parse_int64(time_val, end) * 10000;
 
         }
         
@@ -98,10 +101,311 @@ void BinanceDataProcessor::parse_and_publish(const std::string& message) {
         order_book_event.data = BinanceFastParser::parse_depth_update(message.c_str(), strlen(message.c_str()));
         event_bus_->publish(order_book_event);
 
+    }
+    else if ((strncmp(event_type_val, "24hrTicker", 6) == 0 )){
+        TickerDataEvent tick_event;
+        TickerData& tick_data = tick_event.data;
+        tick_data.source = "Binance";
+
+        // Extract symbol "s"
+        if (symbol_val) {
+            const char* symbol_end = static_cast<const char*>(memchr(symbol_val, '"', end - symbol_val));
+            if (symbol_end) {
+                tick_data.symbol = std::string_view(symbol_val, symbol_end - symbol_val);
+            }
+        }
+
+        // Extract and parse price "E"
+        const char* timestamp_val = BinanceFastParser::find_value_after_key(data_start, end, "E", 1);
+        if (timestamp_val) {
+            // tick_data.timestamp = BinanceFastParser::parse_double(timestamp_val, end);
+            tick_data.timestamp = get_time_now();
+        }
+
+        // Extract symbol "c"
+        const char* last_price_val = BinanceFastParser::find_value_after_key(data_start, end, "c", 1);
+        if (last_price_val) {
+            const char* last_price_end = static_cast<const char*>(memchr(last_price_val, '"', end - last_price_val));
+            if (last_price_end) {
+                tick_data.last_price = BinanceFastParser::parse_double(last_price_val, end);
+            }
+        }
+
+        // Extract symbol "b"
+        const char* best_bid_val = BinanceFastParser::find_value_after_key(data_start, end, "b", 1);
+        if (best_bid_val) {
+            const char* best_bid_end = static_cast<const char*>(memchr(best_bid_val, '"', end - best_bid_val));
+            if (best_bid_end) {
+                tick_data.best_bid = BinanceFastParser::parse_double(best_bid_val, end);
+            }
+            
+        }
+
+        // Extract symbol "B"
+        const char* best_bid_size_val = BinanceFastParser::find_value_after_key(data_start, end, "B", 1);
+        if (best_bid_size_val) {
+            const char* best_bid_size_end = static_cast<const char*>(memchr(best_bid_size_val, '"', end - best_bid_size_val));
+            if (best_bid_size_end) {
+                tick_data.best_bid_size = BinanceFastParser::parse_double(best_bid_size_val, end);
+            }
+        }
+
+        // Extract symbol "a"
+        const char* best_ask_val = BinanceFastParser::find_value_after_key(data_start, end, "a", 1);
+        if (best_ask_val) {
+            const char* best_ask_end = static_cast<const char*>(memchr(best_ask_val, '"', end - best_ask_val));
+            if (best_ask_end) {
+                tick_data.best_ask = BinanceFastParser::parse_double(best_ask_val, end);
+            }
+            
+        }
+
+        // Extract symbol "A"
+        const char* best_ask_size_val = BinanceFastParser::find_value_after_key(data_start, end, "A", 1);
+        if (best_ask_size_val) {
+            const char* best_ask_size_end = static_cast<const char*>(memchr(best_ask_size_val, '"', end - best_ask_size_val));
+            if (best_ask_size_end) {
+                tick_data.best_bid_size = BinanceFastParser::parse_double(best_ask_size_val, end);
+            }
+        }
+
+        // Extract symbol "v"
+        const char* volume_val = BinanceFastParser::find_value_after_key(data_start, end, "v", 1);
+        if (volume_val) {
+            const char* volume_end = static_cast<const char*>(memchr(volume_val, '"', end - volume_val));
+            if (volume_end) {
+                tick_data.volume_24h = BinanceFastParser::parse_double(volume_val, end);
+            }
+        }
+
+        // Extract symbol "p"
+        const char* price_change_val = BinanceFastParser::find_value_after_key(data_start, end, "p", 1);
+        if (price_change_val) {
+            const char* price_change_end = static_cast<const char*>(memchr(price_change_val, '"', end - price_change_val));
+            if (price_change_end) {
+                tick_data.price_change_24h = BinanceFastParser::parse_double(price_change_val, end);
+            }
+        }
+        
+        // Extract symbol "P"
+        const char* price_change_percent_val = BinanceFastParser::find_value_after_key(data_start, end, "P", 1);
+        if (price_change_percent_val) {
+            const char* price_change_percent_end = static_cast<const char*>(memchr(price_change_percent_val, '"', end - price_change_percent_val));
+            if (price_change_percent_end) {
+                tick_data.price_change_24h = BinanceFastParser::parse_double(price_change_percent_val, end);
+            }
+        }
+
+        // Extract symbol "h"
+        const char* high_24h_val = BinanceFastParser::find_value_after_key(data_start, end, "h", 1);
+        if (high_24h_val) {
+            const char* high_24h_end = static_cast<const char*>(memchr(high_24h_val, '"', end - high_24h_val));
+            if (high_24h_end) {
+                tick_data.high_24h = BinanceFastParser::parse_double(high_24h_val, end);
+            }
+        }
+
+        // Extract symbol "l"
+        const char* low_24h_val = BinanceFastParser::find_value_after_key(data_start, end, "h", 1);
+        if (low_24h_val) {
+            const char* low_24h_end = static_cast<const char*>(memchr(low_24h_val, '"', end - low_24h_val));
+            if (low_24h_end) {
+                tick_data.low_24h = BinanceFastParser::parse_double(low_24h_val, end);
+            }
+        }
+        event_bus_->publish(tick_event);
 
     }
-    else if ((strncmp(event_type_val, "ticker", 6) == 0 )){
+    else if((strncmp(event_type_val, "kline", 5) == 0 )){
+        CandleStickDataEvent candlestick_event;
+        CandleStickData& candlestick_data = candlestick_event.data;
+        candlestick_data.source = "Binance";
+
+        if (symbol_val) {
+            const char* symbol_end = static_cast<const char*>(memchr(symbol_val, '"', end - symbol_val));
+            if (symbol_end) {
+                candlestick_data.symbol = std::string_view(symbol_val, symbol_end - symbol_val);
+            }
+        }
         
+        // const char* k_start = BinanceFastParser::find_value_after_key(start, end, "k", 4);
+       
+        // Extract symbol "k.t"
+        const char* inteval_val = BinanceFastParser::find_value_after_key(data_start, end, "i", 1);
+        if (inteval_val) {
+            const char* inteval_end = static_cast<const char*>(memchr(inteval_val, '"', end - inteval_val));
+            if (inteval_end) {
+                candlestick_data.interval =  std::string_view(inteval_val, inteval_end - inteval_val);
+            }
+        }
+
+        // Extract symbol "k.t"
+        const char* open_time_val = BinanceFastParser::find_value_after_key(data_start, end, "t", 1);
+        if (open_time_val) {
+            const char* open_time_end = static_cast<const char*>(memchr(open_time_val, '"', end - open_time_val));
+            if (open_time_end) {
+                candlestick_data.open_time =  BinanceFastParser::parse_int64(open_time_val, open_time_end);
+            }
+        }
+
+        // Extract symbol "k.o"
+        const char* open_val = BinanceFastParser::find_value_after_key(data_start, end, "o", 1);
+        if (open_val) {
+            const char* open_end = static_cast<const char*>(memchr(open_val, '"', end - open_val));
+            if (open_end) {
+                candlestick_data.open =  BinanceFastParser::parse_double(open_val, end);
+            }
+        }
+
+        // Extract symbol "k.h"
+        const char* high_val = BinanceFastParser::find_value_after_key(data_start, end, "h", 1);
+        if (high_val) {
+            const char* high_end = static_cast<const char*>(memchr(high_val, '"', end - high_val));
+            if (high_end) {
+                candlestick_data.high =  BinanceFastParser::parse_double(high_val, end);
+            }
+        }
+
+        // Extract symbol "k.l"
+        const char* low_val = BinanceFastParser::find_value_after_key(data_start, end, "l", 1);
+        if (low_val) {
+            const char* low_end = static_cast<const char*>(memchr(low_val, '"', end - low_val));
+            if (low_end) {
+                candlestick_data.low =  BinanceFastParser::parse_double(low_val, end);
+            }
+        }
+
+        // Extract symbol "k.c"
+        const char* close_val = BinanceFastParser::find_value_after_key(data_start, end, "c", 1);
+        if (close_val) {
+            const char* close_end = static_cast<const char*>(memchr(close_val, '"', end - close_val));
+            if (close_end) {
+                candlestick_data.close =  BinanceFastParser::parse_double(close_val, end);
+            }
+        }
+
+        // Extract symbol "k.v"
+        const char* volume_val = BinanceFastParser::find_value_after_key(data_start, end, "v", 1);
+        if (volume_val) {
+            const char* volume_end = static_cast<const char*>(memchr(volume_val, '"', end - volume_val));
+            if (volume_end) {
+                candlestick_data.volume =  BinanceFastParser::parse_double(volume_val, end);
+            }
+        }
+
+        // Extract symbol "k.T"
+        const char* close_time_val = BinanceFastParser::find_value_after_key(data_start, end, "T", 1);
+        if (close_time_val) {
+            const char* close_time_end = static_cast<const char*>(memchr(close_time_val, '"', end - close_time_val));
+            if (close_time_end) {
+                candlestick_data.close_time =  BinanceFastParser::parse_int64(close_time_val, end);
+            }
+        }
+
+        // Extract symbol "k.n"
+        const char* trade_count_val = BinanceFastParser::find_value_after_key(data_start, end, "n", 1);
+        if (trade_count_val) {
+            const char* trade_count_end = static_cast<const char*>(memchr(trade_count_val, '"', end - trade_count_val));
+            if (trade_count_end) {
+                candlestick_data.trade_count =  BinanceFastParser::parse_int64(trade_count_val, end);
+            }
+        }
+
+        event_bus_->publish(candlestick_event);
+
     }
 
 }
+
+
+// void BinanceDataProcessor::parse_and_publish(const std::string& message) {
+//     simdjson::padded_string json_string(message);
+//     simdjson::ondemand::document doc;
+//     simdjson::error_code error;
+
+//     // Use a reusable parser instance for better performance
+//     error = parser.iterate(json_string).get(doc);
+//     if (error) {
+//         std::cerr << "simdjson parsing error: " << simdjson::error_message(error) << "\n";
+//         return;
+//     }
+
+//     simdjson::ondemand::object data_obj;
+//     error = doc["data"].get(data_obj);
+//     if (error) {
+//         return;
+//     }
+
+//     std::string_view event_type_val;
+//     error = data_obj["e"].get_string().get(event_type_val);
+//     if (error) {
+//         return;
+//     }
+
+//     if (event_type_val == "trade") {
+//         TradeEvent trade_event;
+//         auto& trade_data = trade_event.data;
+//         trade_data.source = "Binance";
+
+//         trade_data.symbol = data_obj["s"].get_string();
+//         trade_data.price = fast_stod(data_obj["p"].get_string().value());
+//         trade_data.quantity = fast_stod(data_obj["q"].get_string().value());
+//         // trade_data.trade_time = data_obj["T"].get_int64();
+//         trade_data.trade_time = get_time_now();
+
+//         event_bus_->publish(trade_event);
+
+//     } else if (event_type_val == "depthUpdate") {
+//         OrderBookDataEvent order_book_event;
+//         order_book_event.data.symbol=data_obj["s"].get_string();
+
+//         // order_book_event.data.timestamp = data_obj["E"].get_int64();
+//         order_book_event.data.timestamp = get_time_now();
+
+//         order_book_event.data.id = data_obj["u"].get_int64();
+
+//         // Parse 'bids' array
+//         simdjson::ondemand::array bids_array;
+//         error = data_obj["b"].get(bids_array);
+//         if (!error) {
+//             for (simdjson::ondemand::array bid_level : bids_array) {
+//                 std::string_view price_str, quantity_str;
+//                 error = bid_level.at(0).get_string().get(price_str);
+//                 if (error) continue;
+//                 error = bid_level.at(1).get_string().get(quantity_str);
+//                 if (error) continue;
+                
+//                 double price = fast_stod(price_str.data());
+//                 double quantity = fast_stod(quantity_str.data());
+
+//                 order_book_event.data.bids.push_back({price, quantity});
+//             }
+//         }
+
+//         // Parse 'asks' array
+//         simdjson::ondemand::array asks_array;
+//         error = data_obj["a"].get(asks_array);
+//         if (!error) {
+//             for (simdjson::ondemand::array ask_level : asks_array) {
+//                 std::string_view price_str, quantity_str;
+//                 error = ask_level.at(0).get_string().get(price_str);
+//                 if (error) continue;
+//                 error = ask_level.at(1).get_string().get(quantity_str);
+//                 if (error) continue;
+                
+//                 double price = fast_stod(price_str.data());
+//                 double quantity = fast_stod(quantity_str.data());
+                
+//                 order_book_event.data.asks.push_back({price, quantity});
+//             }
+//         } 
+
+
+//         event_bus_->publish(order_book_event);
+
+//     } else if (event_type_val == "ticker") {
+//         TickerDataEvent ticker_event;
+//         // ticker_event.data = parse_ticker_simdjson(message);
+//         event_bus_->publish(ticker_event);
+//     }
+// }

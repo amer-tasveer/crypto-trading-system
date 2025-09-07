@@ -1,5 +1,6 @@
 #include "BinancePipeline.hpp"
-// #include "KrakenPipeline.hpp"
+#include "CoinbasePipeline.hpp"
+#include "KrakenPipeline.hpp"
 #include "SPSCQueue.hpp"
 #include "EventBus.hpp"
 #include <iostream>
@@ -17,7 +18,7 @@ void signal_handler(int) {
 
 int main() {
     try {
-        // Set up signal handling shutdown
+        // Set up signal handling for graceful shutdown
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
 
@@ -27,16 +28,63 @@ int main() {
 
 
         event_bus->subscribe<TradeEvent>([](const TradeEvent& event) {
-            std::cout << "Received TradeEvent: "
-                        << event.data.symbol << ", "
-                        << event.data.price << ", "
-                        << event.data.quantity << ", "
-                        << event.data.trade_time <<", "
-                        << elapsed << "\n";
+
+        auto givenTimePoint =  event.data.trade_time;
+        auto nowTimePoint = get_time_now();
+        auto elapsed = nowTimePoint - givenTimePoint;
+ 
+        std::cout << "Received TradeEvent: "
+                    << event.data.symbol << ", "
+                    << event.data.price << ", "
+                    << event.data.quantity << ", "
+                    << event.data.trade_time <<", "
+                    << elapsed << "\n";
+
+        });
+
+        event_bus->subscribe<CandleStickDataEvent>([](const CandleStickDataEvent& event) {
+
+            std::cout << "Received CandleStickDataEvent: "
+                    << event.data.symbol << ", "
+                    << event.data.source << ", "
+                    << event.data.interval << ", "
+                    << event.data.close_time << ", "
+                    << event.data.open_time <<", "
+                    << event.data.close <<", "
+                    << event.data.open <<", "
+                    << event.data.high <<", "
+                    << event.data.low <<", "
+                    << event.data.volume <<", "
+                    << event.data.trade_count <<"\n";
+
+        });
+
+
+        event_bus->subscribe<TickerDataEvent>([](const TickerDataEvent& event) {
+            auto givenTimePoint =  event.data.timestamp;
+            auto nowTimePoint = get_time_now();
+            auto elapsed = nowTimePoint - givenTimePoint;
+            std::cout << "Received TickerDataEvent: " << event.data.symbol << ","
+            << event.data.best_ask << ","
+            << event.data.best_ask_size << ","
+            << event.data.best_bid << ","
+            << event.data.best_bid_size<< ","
+            << event.data.high_24h<< ","
+            << event.data.low_24h<< ","
+            << event.data.last_price<< ","
+            << event.data.price_change_24h<< ","
+            << event.data.price_change_percent_24h<< ","
+            << elapsed << "\n";
 
         });
 
         event_bus->subscribe<OrderBookDataEvent>([](const OrderBookDataEvent& event) {
+            auto givenTimePoint =  event.data.timestamp;
+            auto nowTimePoint = get_time_now();
+            auto elapsed = nowTimePoint - givenTimePoint;
+            std::cout << "Received OrderBookDataEvent: " << event.data.symbol << ","
+            << elapsed << "\n";
+
             for (size_t i = 0; i < event.data.bids.size(); ++i) {
                 std::cout << "(" << event.data.bids[i].first << ", " << event.data.bids[i].second << ")";
                 if (i < event.data.bids.size() - 1) {
@@ -54,16 +102,22 @@ int main() {
         });
 
         // Create and configure pipeline
-        BinancePipeline pipeline(queue, event_bus);
+        // BinancePipeline pipeline(queue, event_bus);
+        // CoinbasePipeline pipeline(queue, event_bus);
+        KrakenPipeline pipeline(queue, event_bus);
 
         json::object subscription_info = {
-            {"streams", json::array{"btcusdt@trade"}}
+            // {"streams", json::array{"btcusdt@trade"}}
             // {"streams", json::array{"btcusdt@depth@100ms"}}
+            // {"streams", json::array{"btcusdt@ticker"}}
+            {"streams", json::array{"btcusdt@kline_1s"}}
         };
 
         // json::object subscription_info = {
         //     {"product_ids", json::array{"BTC-USD"}},
-        //     {"channels", json::array{"full"}}
+        //     // {"channels", json::array{"matches"}}
+        //     {"channels", json::array{"level2_batch"}}
+        //     // {"channels", json::array{"ticker"}}
 
         // };
 
@@ -77,10 +131,12 @@ int main() {
         // subscription_info["method"] = "subscribe";
 
         // boost::json::object params;
-        // params["channel"] = "book";   // channel type
+        // params["channel"] = "trade";   // channel type
         // params["symbol"] = json::array{ "BTC/USD" }; // symbols as array
 
         // subscription_info["params"] = params;
+
+
 
         pipeline.initialize("stream.binance.com", "443", "/ws", subscription_info);
 

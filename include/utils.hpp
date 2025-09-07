@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <cstdint> 
 
-std::string convert_milliseconds_to_timestamp(int64_t timestamp) {
+inline std::string convert_milliseconds_to_timestamp(int64_t timestamp) {
     auto time_t = static_cast<std::time_t>(timestamp / 1000);
     auto ms = timestamp % 1000;
     std::stringstream ss;
@@ -16,19 +16,16 @@ std::string convert_milliseconds_to_timestamp(int64_t timestamp) {
     return ss.str();
 }
 
-// Converts a timestamp string with fractional seconds to a Unix timestamp in milliseconds.
-int64_t convert_timestamp_to_milliseconds(const std::string& timestamp_str) {
+inline int64_t convert_timestamp_to_milliseconds(const std::string& timestamp_str) {
     std::tm t = {};
     std::istringstream ss(timestamp_str);
     
-    // Parse the date and time parts, excluding fractional seconds and the 'Z'.
     ss >> std::get_time(&t, "%Y-%m-%dT%H:%M:%S");
 
     if (ss.fail()) {
         throw std::runtime_error("Failed to parse date and time string.");
     }
     
-    // Check if the next character is the decimal point for fractional seconds
     long long milliseconds_part = 0;
     if (ss.peek() == '.') {
         ss.get(); // Read the decimal point
@@ -50,14 +47,11 @@ int64_t convert_timestamp_to_milliseconds(const std::string& timestamp_str) {
         }
     }
     
-    // Use std::mktime, which correctly handles time zones.
-    // However, it converts to local time, so we need to adjust for UTC.
     std::time_t tt = std::mktime(&t);
     if (tt == -1) {
         throw std::runtime_error("Failed to convert tm to time_t.");
     }
 
-    // Get the current local time and UTC time to find the offset
     std::time_t local_time_now = std::time(nullptr);
     std::tm* tm_local = std::localtime(&local_time_now);
     
@@ -72,4 +66,38 @@ int64_t convert_timestamp_to_milliseconds(const std::string& timestamp_str) {
     tt += offset_seconds;
     
     return static_cast<int64_t>(tt) * 1000 + milliseconds_part;
+}
+
+inline int64_t get_time_now(){
+    auto now = std::chrono::system_clock::now();
+
+    // Get the duration since the epoch
+    auto duration_since_epoch = now.time_since_epoch();
+
+    // Cast the duration to microseconds
+   return std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch).count();
+}
+
+inline double fast_stod(std::string_view s) {
+    double integer_part = 0.0;
+    double fractional_part = 0.0;
+    double sign = 1.0;
+    bool in_fraction = false;
+    double fractional_divisor = 1.0;
+
+    for (char c : s) {
+        if (c == '-') {
+            sign = -1.0;
+        } else if (c == '.') {
+            in_fraction = true;
+        } else if (c >= '0' && c <= '9') {
+            if (in_fraction) {
+                fractional_divisor *= 10.0;
+                fractional_part = (fractional_part * 10.0) + (c - '0');
+            } else {
+                integer_part = (integer_part * 10.0) + (c - '0');
+            }
+        }
+    }
+    return sign * (integer_part + (fractional_part / fractional_divisor));
 }
