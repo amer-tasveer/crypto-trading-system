@@ -1,1 +1,1 @@
-# trading-strategies
+# trading-system
