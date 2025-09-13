@@ -1,6 +1,7 @@
 #include "CoinbasePipeline.hpp"
 #include <iostream>
 #include <boost/json.hpp>
+#include "utils.hpp"
 
 namespace json = boost::json;
 
@@ -48,6 +49,19 @@ void CoinbasePipeline::start() {
             running_ = false;
         }
     });
+
+    // Pin the network I/O thread, which is the most latency-sensitive.
+    if (exchange_thread_.joinable()) {
+        pin_thread_to_cpu(exchange_thread_, 4);
+        std::cout << "Pinned exchange thread to CPU 1." << std::endl;
+    }
+
+    // Pin the data parsing thread to a different core to run in parallel without contention.
+    if (parser_thread_.joinable()) {
+        pin_thread_to_cpu(parser_thread_, 5);
+        std::cout << "Pinned parser thread to CPU 2." << std::endl;
+    }
+
 
     std::cout << "CoinbasePipeline started with market feed and processor threads." << std::endl;
 }

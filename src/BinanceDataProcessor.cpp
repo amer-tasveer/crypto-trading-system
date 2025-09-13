@@ -86,7 +86,7 @@ void BinanceDataProcessor::parse_and_publish(const std::string& message) {
         const char* time_val = BinanceFastParser::find_value_after_key(data_start, end, "T", 1);
         if (time_val) {
             // The parser will stop at the next comma or brace
-            trade_data.trade_time = get_time_now();
+            trade_data.trade_time = get_time_now_nano();
             // trade_data.trade_time = time_val.;
             // trade_data.trade_time = BinanceFastParser::parse_int64(time_val, end) * 10000;
 
@@ -119,7 +119,7 @@ void BinanceDataProcessor::parse_and_publish(const std::string& message) {
         const char* timestamp_val = BinanceFastParser::find_value_after_key(data_start, end, "E", 1);
         if (timestamp_val) {
             // tick_data.timestamp = BinanceFastParser::parse_double(timestamp_val, end);
-            tick_data.timestamp = get_time_now();
+            tick_data.timestamp = get_time_now_nano();
         }
 
         // Extract symbol "c"

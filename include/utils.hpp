@@ -6,6 +6,16 @@
 #include <sstream>
 #include <stdexcept>
 #include <cstdint> 
+#include <thread> 
+
+
+#ifdef _WIN32
+#include <windows.h>
+#include <pthread.h> 
+#else
+#include <sched.h> // Required for CPU affinity functions on Linux/POSIX
+#endif
+
 
 inline std::string convert_milliseconds_to_timestamp(int64_t timestamp) {
     auto time_t = static_cast<std::time_t>(timestamp / 1000);
@@ -68,15 +78,31 @@ inline int64_t convert_timestamp_to_milliseconds(const std::string& timestamp_st
     return static_cast<int64_t>(tt) * 1000 + milliseconds_part;
 }
 
-inline int64_t get_time_now(){
+
+
+template <typename T>
+inline int64_t get_time_now_impl() {
     auto now = std::chrono::system_clock::now();
-
-    // Get the duration since the epoch
-    auto duration_since_epoch = now.time_since_epoch();
-
-    // Cast the duration to microseconds
-   return std::chrono::duration_cast<std::chrono::nanoseconds>(duration_since_epoch).count();
+    return std::chrono::duration_cast<T>(now.time_since_epoch()).count();
 }
+
+inline int64_t get_time_now_nano() {
+    return get_time_now_impl<std::chrono::nanoseconds>();
+}
+
+inline int64_t get_time_now_micro() {
+    return get_time_now_impl<std::chrono::microseconds>();
+}
+
+inline int64_t get_time_now_milli() {
+    return get_time_now_impl<std::chrono::milliseconds>();
+}
+
+template <typename T>
+inline int64_t get_time_now_generic() {
+    return std::chrono::duration_cast<T>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 
 inline double fast_stod(std::string_view s) {
     double integer_part = 0.0;
@@ -100,4 +126,29 @@ inline double fast_stod(std::string_view s) {
         }
     }
     return sign * (integer_part + (fractional_part / fractional_divisor));
+}
+
+
+/**
+ * @brief Pins a thread to a specific CPU core.
+ * @param cpu_num The CPU core number to pin the thread to.
+ */
+inline void pin_thread_to_cpu(std::thread& t, int cpu_num) {
+#ifdef _WIN32
+    // Windows implementation
+    HANDLE handle = GetCurrentThread();
+    DWORD_PTR mask = 1LL << cpu_num;
+    if (SetThreadAffinityMask(handle, mask) == 0) {
+        std::cerr << "Error: Failed to pin thread to CPU " << cpu_num << ". Error code: " << GetLastError() << std::endl;
+    }
+#else
+    // Linux/POSIX implementation
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(cpu_num, &cpuset);
+    int rc = pthread_setaffinity_np(t.native_handle(), sizeof(cpu_set_t), &cpuset);
+    if (rc != 0) {
+        std::cerr << "Error: Failed to pin thread to CPU " << cpu_num << ". Error code: " << rc << std::endl;
+    }
+#endif
 }

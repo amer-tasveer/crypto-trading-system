@@ -62,7 +62,7 @@ public:
 
     void set_credentials(const std::string& api_key, const std::string& api_secret, 
                         const std::string& passphrase);
-    void initialize(const std::string& host, const std::string& port, const std::string& target,
+    void initialize(const std::string_view& host, const std::string_view& port, const std::string_view& target,
                     const boost::json::object& subscription_info) override;
     net::io_context& get_io_context() override;
 

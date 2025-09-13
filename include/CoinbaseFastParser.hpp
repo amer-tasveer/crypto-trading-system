@@ -109,7 +109,7 @@ public:
         // Parse event time "time"
         const char* time_start = find_value_after_key(json, end, "time", 4);
         if (time_start) {
-            result.timestamp = get_time_now();
+            result.timestamp = get_time_now_nano();
 
         } 
 

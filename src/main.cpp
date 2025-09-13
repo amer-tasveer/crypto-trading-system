@@ -7,7 +7,7 @@
 #include <boost/json.hpp>
 #include <csignal>
 #include <memory>
-#include "utils.hpp"
+#include <Logger.hpp>
 namespace json = boost::json;
 
 volatile sig_atomic_t g_running = 1;
@@ -18,108 +18,42 @@ void signal_handler(int) {
 
 int main() {
     try {
-        // Set up signal handling for graceful shutdown
+        // Set up signal handling for shutdown
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
 
         // Create queue and event bus
-        SPSCQueue<std::string> queue(8192); 
+        SPSCQueue<std::string> binance_queue(8192); 
+        SPSCQueue<std::string> coinbase_queue(8192); 
+
         auto event_bus = std::make_shared<EventBus>();
 
+        Logger::init("logs/events.log");
 
-        event_bus->subscribe<TradeEvent>([](const TradeEvent& event) {
-
-        auto givenTimePoint =  event.data.trade_time;
-        auto nowTimePoint = get_time_now();
-        auto elapsed = nowTimePoint - givenTimePoint;
- 
-        std::cout << "Received TradeEvent: "
-                    << event.data.symbol << ", "
-                    << event.data.price << ", "
-                    << event.data.quantity << ", "
-                    << event.data.trade_time <<", "
-                    << elapsed << "\n";
-
-        });
-
-        event_bus->subscribe<CandleStickDataEvent>([](const CandleStickDataEvent& event) {
-
-            std::cout << "Received CandleStickDataEvent: "
-                    << event.data.symbol << ", "
-                    << event.data.source << ", "
-                    << event.data.interval << ", "
-                    << event.data.close_time << ", "
-                    << event.data.open_time <<", "
-                    << event.data.close <<", "
-                    << event.data.open <<", "
-                    << event.data.high <<", "
-                    << event.data.low <<", "
-                    << event.data.volume <<", "
-                    << event.data.trade_count <<"\n";
-
-        });
+        Logger& logger = Logger::getInstance();
+        
+        logger.subscribeToBus(event_bus);
 
 
-        event_bus->subscribe<TickerDataEvent>([](const TickerDataEvent& event) {
-            auto givenTimePoint =  event.data.timestamp;
-            auto nowTimePoint = get_time_now();
-            auto elapsed = nowTimePoint - givenTimePoint;
-            std::cout << "Received TickerDataEvent: " << event.data.symbol << ","
-            << event.data.best_ask << ","
-            << event.data.best_ask_size << ","
-            << event.data.best_bid << ","
-            << event.data.best_bid_size<< ","
-            << event.data.high_24h<< ","
-            << event.data.low_24h<< ","
-            << event.data.last_price<< ","
-            << event.data.price_change_24h<< ","
-            << event.data.price_change_percent_24h<< ","
-            << elapsed << "\n";
+        BinancePipeline binance_pipeline(binance_queue, event_bus);
+        CoinbasePipeline coinbase_pipeline(coinbase_queue, event_bus);
+        // KrakenPipeline pipeline(queue, event_bus);
 
-        });
-
-        event_bus->subscribe<OrderBookDataEvent>([](const OrderBookDataEvent& event) {
-            auto givenTimePoint =  event.data.timestamp;
-            auto nowTimePoint = get_time_now();
-            auto elapsed = nowTimePoint - givenTimePoint;
-            std::cout << "Received OrderBookDataEvent: " << event.data.symbol << ","
-            << elapsed << "\n";
-
-            for (size_t i = 0; i < event.data.bids.size(); ++i) {
-                std::cout << "(" << event.data.bids[i].first << ", " << event.data.bids[i].second << ")";
-                if (i < event.data.bids.size() - 1) {
-                    std::cout << ", ";
-                }
-            }
-            std::cout << "], Ask: [";
-            for (size_t i = 0; i < event.data.asks.size(); ++i) {
-                std::cout << "(" << event.data.asks[i].first << ", " << event.data.asks[i].second << ")";
-                if (i < event.data.asks.size() - 1) {
-                    std::cout << ", ";
-                }
-            }
-            std::cout << "]" << std::endl;
-        });
-
-        // Create and configure pipeline
-        // BinancePipeline pipeline(queue, event_bus);
-        // CoinbasePipeline pipeline(queue, event_bus);
-        KrakenPipeline pipeline(queue, event_bus);
-
-        json::object subscription_info = {
-            // {"streams", json::array{"btcusdt@trade"}}
+        json::object binance_subscription_info = {
+            // {"streams", json::array{"ethusdt@trade"}}
             // {"streams", json::array{"btcusdt@depth@100ms"}}
-            // {"streams", json::array{"btcusdt@ticker"}}
-            {"streams", json::array{"btcusdt@kline_1s"}}
+            {"streams", json::array{"btcusdt@ticker"}}
+            // {"streams", json::array{"btcusdt@kline_1s"}}
+
         };
 
-        // json::object subscription_info = {
-        //     {"product_ids", json::array{"BTC-USD"}},
-        //     // {"channels", json::array{"matches"}}
-        //     {"channels", json::array{"level2_batch"}}
-        //     // {"channels", json::array{"ticker"}}
+        json::object coinbase_subscription_info = {
+            {"product_ids", json::array{"BTC-USD"}},
+            // {"channels", json::array{"matches"}}
+            // {"channels", json::array{"level2_batch"}}
+            {"channels", json::array{"ticker"}}
 
-        // };
+        };
 
         // json::object subscription_info = {
         //     {"symbol", json::array{"BTC/USD", "MATIC/GBP"}},
@@ -127,25 +61,24 @@ int main() {
 
         // };
 
-        // boost::json::object subscription_info;
-        // subscription_info["method"] = "subscribe";
+        boost::json::object subscription_info;
+        subscription_info["method"] = "subscribe";
 
-        // boost::json::object params;
-        // params["channel"] = "trade";   // channel type
-        // params["symbol"] = json::array{ "BTC/USD" }; // symbols as array
+        boost::json::object params;
+        params["channel"] = "trade";   // channel type
+        params["symbol"] = json::array{ "BTC/USD" }; // symbols as array
 
-        // subscription_info["params"] = params;
+        subscription_info["params"] = params;
 
+        binance_pipeline.initialize("stream.binance.com", "443", "/ws", binance_subscription_info);
 
-
-        pipeline.initialize("stream.binance.com", "443", "/ws", subscription_info);
-
-        // pipeline.initialize("ws-feed.exchange.coinbase.com", "443", "/", subscription_info);
+        coinbase_pipeline.initialize("ws-feed.exchange.coinbase.com", "443", "/", coinbase_subscription_info);
 
         // pipeline.initialize("ws.kraken.com", "443", "/v2", subscription_info);
 
         // Start pipeline
-        pipeline.start();
+        binance_pipeline.start();
+        coinbase_pipeline.start();
 
         // Run until interrupted
         while (g_running) {
@@ -154,7 +87,8 @@ int main() {
 
         // Stop pipeline
         std::cout << "Shutting down..." << std::endl;
-        pipeline.stop();
+        binance_pipeline.stop();
+        coinbase_pipeline.stop();
 
         return 0;
     } catch (const std::exception& e) {

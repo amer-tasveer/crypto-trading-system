@@ -22,8 +22,8 @@ BinanceExchange::~BinanceExchange() {
     std::cout << "BinanceExchange destroyed\n";
 }
 
-void BinanceExchange::initialize(const std::string& host, const std::string& port,
-                                 const std::string& target, const boost::json::object& subscription_info) {
+void BinanceExchange::initialize(const std::string_view& host, const std::string_view& port,
+                                 const std::string_view& target, const boost::json::object& subscription_info) {
     host_ = host;
     port_ = port;
     target_ = target;

@@ -163,7 +163,7 @@ public:
             const char* E_end = E_start;
             while (E_end < end && (*E_end >= '0' && *E_end <= '9')) ++E_end;
             // result.event_time = parse_int64(E_start, E_end);
-            result.timestamp = get_time_now();
+            result.timestamp = get_time_now_nano();
         
         }
 

@@ -55,7 +55,7 @@ void KrakenDataProcessor::parse_and_publish(const std::string& message){
             TradeEvent trade_event;
             TradeData& trade_data = trade_event.data;
 
-            trade_data.trade_time = get_time_now();
+            trade_data.trade_time = get_time_now_nano();
 
             const char* data_start = KrakenFastParser::find_value_after_key(start, end, "data", 4);
            
@@ -250,7 +250,7 @@ void KrakenDataProcessor::parse_and_publish(const std::string& message){
                 const char* ticker_obj_start = static_cast<const char*>(memchr(data_start, '{', end - data_start));
                 if (ticker_obj_start) {
                     // Update timestamp
-                    ticker_data.timestamp = get_time_now();
+                    ticker_data.timestamp = get_time_now_nano();
                     
                     // Parse symbol
                     const char* symbol_val = KrakenFastParser::find_value_after_key(ticker_obj_start, end, "symbol", 6);
@@ -338,10 +338,11 @@ void KrakenDataProcessor::parse_and_publish(const std::string& message){
         else if(channel_sv == "book"){
             OrderBookDataEvent order_book_event;
             OrderBookData& order_book_data = order_book_event.data;
-            order_book_data.timestamp = get_time_now();
+            order_book_data.timestamp = get_time_now_nano();
 
             const char* data_start = KrakenFastParser::find_value_after_key(start, end, "data", 4);
             if (data_start) {
+                
                 // Skip to opening bracket of data array
                 while (data_start < end && *data_start != '[') ++data_start;
                 if (data_start < end) ++data_start; // Skip '['

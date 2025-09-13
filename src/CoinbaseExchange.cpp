@@ -46,8 +46,8 @@ void CoinbaseExchange::set_credentials(const std::string& api_key, const std::st
     std::cout << "Coinbase credentials set for authenticated connection." << std::endl;
 }
 
-void CoinbaseExchange::initialize(const std::string& host, const std::string& port,
-                                  const std::string& target, const boost::json::object& subscription_info) {
+void CoinbaseExchange::initialize(const std::string_view& host, const std::string_view& port,
+                                  const std::string_view& target, const boost::json::object& subscription_info) {
     std::cout << "Initializing Coinbase connection..." << std::endl;
     host_ = host;
     port_ = port;

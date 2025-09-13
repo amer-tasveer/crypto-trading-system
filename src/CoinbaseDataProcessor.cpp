@@ -51,7 +51,7 @@ void CoinbaseDataProcessor::parse_and_publish(const std::string& message) {
 
     if (strncmp(event_type_val, "match", 5) == 0) {
         TradeEvent trade_event;
-        auto& trade_data = trade_event.data;
+        TradeData& trade_data = trade_event.data;
         trade_data.source = "Coinbase";
 
         // Extract symbol "product_id"
@@ -79,7 +79,7 @@ void CoinbaseDataProcessor::parse_and_publish(const std::string& message) {
         const char* time_val = CoinbaseFastParser::find_value_after_key(start, end, "time", 4);
         if (time_val) {
 
-            trade_data.trade_time = get_time_now();
+            trade_data.trade_time = get_time_now_nano();
             // trade_data.trade_time = time_val;
 
         }
@@ -88,7 +88,7 @@ void CoinbaseDataProcessor::parse_and_publish(const std::string& message) {
     }
     else if (strncmp(event_type_val, "ticker", 6) == 0) {
         TickerDataEvent ticker_event;
-        auto& tick_data = ticker_event.data;
+        TickerData& tick_data = ticker_event.data;
         tick_data.source = "Coinbase";
 
         // Extract symbol "product_id"
@@ -103,7 +103,7 @@ void CoinbaseDataProcessor::parse_and_publish(const std::string& message) {
         const char* time_val = CoinbaseFastParser::find_value_after_key(start, end, "time", 4);
         if (time_val) {
 
-            tick_data.timestamp = get_time_now();
+            tick_data.timestamp = get_time_now_nano();
             // trade_data.trade_time = time_val;
 
         }

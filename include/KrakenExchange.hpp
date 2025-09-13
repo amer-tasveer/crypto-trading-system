@@ -45,7 +45,7 @@ private:
 public:
     KrakenExchange(SPSCQueue<std::string>& queue);
     ~KrakenExchange() noexcept override;
-    void initialize(const std::string& host, const std::string& port, const std::string& target,
+    void initialize(const std::string_view& host, const std::string_view& port, const std::string_view& target,
                     const boost::json::object& subscription_info) override;
     net::io_context& get_io_context() override;
     void start_async() override;
