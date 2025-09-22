@@ -39,7 +39,7 @@ The system's architecture is centered around a high-speed **Event Bus** that act
     
 5.  **Order Management System (OMS):** All orders from trading strategies are routed through the OMS. It performs essential risk checks (e.g., position limits, leverage) before placing the order.
     
-6.  **Logger & DB:** Critical data points—including market events, strategy signals, and order actions—are logged and stored in a database for persistence and post-trade analysis.
+6.  **Logger & DB:** Critical data points such as market events, strategy signals, and order actions are logged and stored in a database for persistence and post-trade analysis.
     
 7.  **Exchanges:** The OMS places approved orders on the target exchanges.
     
