@@ -1,5 +1,5 @@
-#include "BinancePipeline.hpp"
-#include "CoinbasePipeline.hpp"
+#include "binance_pipeline.hpp"
+#include "coinbase_pipeline.hpp"
 #include "KrakenPipeline.hpp"
 #include "SPSCQueue.hpp"
 #include "EventBus.hpp"
@@ -8,6 +8,7 @@
 #include <csignal>
 #include <memory>
 #include <Logger.hpp>
+#include "strats/simple_cross_exchange_arb.hpp"
 namespace json = boost::json;
 
 volatile sig_atomic_t g_running = 1;
@@ -18,7 +19,7 @@ void signal_handler(int) {
 
 int main() {
     try {
-        // Set up signal handling for shutdown
+        // Set up signal handling for graceful shutdown
         std::signal(SIGINT, signal_handler);
         std::signal(SIGTERM, signal_handler);
 
@@ -34,6 +35,9 @@ int main() {
         
         logger.subscribeToBus(event_bus);
 
+        auto execution_router = std::make_shared<IExcecutionRouter>();
+
+
 
         BinancePipeline binance_pipeline(binance_queue, event_bus);
         CoinbasePipeline coinbase_pipeline(coinbase_queue, event_bus);
@@ -41,8 +45,8 @@ int main() {
 
         json::object binance_subscription_info = {
             // {"streams", json::array{"ethusdt@trade"}}
-            // {"streams", json::array{"btcusdt@depth@100ms"}}
-            {"streams", json::array{"btcusdt@ticker"}}
+            {"streams", json::array{"btcusdt@depth@100ms"}}
+            // {"streams", json::array{"btcusdt@ticker"}}
             // {"streams", json::array{"btcusdt@kline_1s"}}
 
         };
@@ -50,8 +54,8 @@ int main() {
         json::object coinbase_subscription_info = {
             {"product_ids", json::array{"BTC-USD"}},
             // {"channels", json::array{"matches"}}
-            // {"channels", json::array{"level2_batch"}}
-            {"channels", json::array{"ticker"}}
+            {"channels", json::array{"level2_batch"}}
+            // {"channels", json::array{"ticker"}}
 
         };
 
@@ -74,11 +78,20 @@ int main() {
 
         coinbase_pipeline.initialize("ws-feed.exchange.coinbase.com", "443", "/", coinbase_subscription_info);
 
-        // pipeline.initialize("ws.kraken.com", "443", "/v2", subscription_info);
+        int16_t diff_percent = 0.00001; 
+        CrossExchangeArb arbitrage_strategy(
+            event_bus,
+            logger, // Pass the logger reference
+            execution_router,
+            binance_pipeline,
+            coinbase_pipeline,
+            diff_percent);
+            
+        arbitrage_strategy.start();
 
-        // Start pipeline
-        binance_pipeline.start();
-        coinbase_pipeline.start();
+        // // Start pipeline
+        // binance_pipeline.start();
+        // coinbase_pipeline.start();
 
         // Run until interrupted
         while (g_running) {

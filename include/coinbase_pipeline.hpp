@@ -1,8 +1,8 @@
 #pragma once
-#include "SPSCQueue.hpp"
-#include "CoinbaseExchange.hpp"
-#include "CoinbaseDataProcessor.hpp"
-#include "EventBus.hpp"
+#include "spsc_queue.hpp"
+#include "coinbase_exchange.hpp"
+#include "coinbase_data_processor.hpp"
+#include "event_bus.hpp"
 #include <thread>
 #include <string>
 

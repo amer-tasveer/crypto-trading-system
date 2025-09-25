@@ -1,18 +1,18 @@
 #pragma once
-#include "SPSCQueue.hpp"
-#include "EventBus.hpp"
+#include "spsc_queue.hpp"
+#include "event_bus.hpp"
 #include <string>
 #include <memory>
 
-class CoinbaseDataProcessor {
+class KrakenDataProcessor {
 private:
     bool running_ = false;
     SPSCQueue<std::string>& queue_;
     std::shared_ptr<EventBus> event_bus_;
 
 public:
-    CoinbaseDataProcessor(SPSCQueue<std::string>& queue, std::shared_ptr<EventBus> event_bus);
-    ~CoinbaseDataProcessor();
+    KrakenDataProcessor(SPSCQueue<std::string>& queue, std::shared_ptr<EventBus> event_bus);
+    ~KrakenDataProcessor();
 
     void start();
     void stop();

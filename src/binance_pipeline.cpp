@@ -1,31 +1,35 @@
-#include "KrakenPipeline.hpp"
+#include "binance_pipeline.hpp"
 #include <iostream>
 #include <boost/json.hpp>
+#include "utils.hpp"
 
 namespace json = boost::json;
 
-KrakenPipeline::KrakenPipeline(SPSCQueue<std::string>& queue, std::shared_ptr<EventBus> event_bus)
-    : queue_(queue), exchange_(std::make_shared<KrakenExchange>(queue)), 
+
+BinancePipeline::BinancePipeline(SPSCQueue<std::string>& queue, std::shared_ptr<EventBus> event_bus)
+    : queue_(queue), exchange_(std::make_shared<BinanceExchange>(queue)), 
       data_parser_(queue, event_bus), event_bus_(event_bus) {}
 
-KrakenPipeline::~KrakenPipeline() {
+BinancePipeline::~BinancePipeline() {
     stop();
 }
 
-void KrakenPipeline::initialize(const std::string& host, const std::string& port,
+void BinancePipeline::initialize(const std::string& host, const std::string& port,
                                 const std::string& target, const boost::json::object& subscription_info) {
     exchange_->initialize(host, port, target, subscription_info);
+    name = "binance";
+
 }
 
-void KrakenPipeline::start() {
+void BinancePipeline::start() {
     if (running_) {
-        std::cerr << "KrakenPipeline already running!" << std::endl;
+        std::cerr << "BinancePipeline already running!" << std::endl;
         return;
     }
     running_ = true;
 
     // Start the exchange asynchronously
-    exchange_->start_async();
+    exchange_->start();
 
     // Launch exchange thread
     exchange_thread_ = std::thread([this] {
@@ -49,10 +53,22 @@ void KrakenPipeline::start() {
         }
     });
 
-    std::cout << "KrakenPipeline started with market feed and processor threads." << std::endl;
+    // Pin the network I/O thread, which is the most latency-sensitive.
+    if (exchange_thread_.joinable()) {
+        pin_thread_to_cpu(exchange_thread_, 2);
+        std::cout << "Pinned exchange thread to CPU 1." << std::endl;
+    }
+
+    // Pin the data parsing thread to a different core to run in parallel without contention.
+    if (parser_thread_.joinable()) {
+        pin_thread_to_cpu(parser_thread_, 3);
+        std::cout << "Pinned parser thread to CPU 2." << std::endl;
+    }
+
+    std::cout << "BinancePipeline started with market feed and processor threads." << std::endl;
 }
 
-void KrakenPipeline::stop() {
+void BinancePipeline::stop() {
     if (!running_) {
         return;
     }
@@ -72,5 +88,5 @@ void KrakenPipeline::stop() {
         std::cout << "Exchange thread stopped." << std::endl;
     }
 
-    std::cout << "KrakenPipeline stopped." << std::endl;
+    std::cout << "BinancePipeline stopped." << std::endl;
 }

@@ -1,4 +1,4 @@
-#include "CoinbasePipeline.hpp"
+#include "coinbase_pipeline.hpp"
 #include <iostream>
 #include <boost/json.hpp>
 #include "utils.hpp"
@@ -16,6 +16,8 @@ CoinbasePipeline::~CoinbasePipeline() {
 void CoinbasePipeline::initialize(const std::string& host, const std::string& port,
                                 const std::string& target, const boost::json::object& subscription_info) {
     exchange_->initialize(host, port, target, subscription_info);
+    name = "coinbase";
+
 }
 
 void CoinbasePipeline::start() {
@@ -26,7 +28,7 @@ void CoinbasePipeline::start() {
     running_ = true;
 
     // Start the exchange asynchronously
-    exchange_->start_async();
+    exchange_->start();
 
     // Launch exchange thread
     exchange_thread_ = std::thread([this] {

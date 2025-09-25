@@ -1,4 +1,4 @@
-#include "BinanceExchange.hpp"
+#include "binance_exchange.hpp"
 #include <iostream>
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/asio/connect.hpp>
@@ -34,7 +34,7 @@ net::io_context& BinanceExchange::get_io_context() {
     return ioc_;
 }
 
-void BinanceExchange::start_async() {
+void BinanceExchange::start() {
     std::cout << "Starting Binance connection..." << std::endl;
 
     std::vector<std::string> streams;

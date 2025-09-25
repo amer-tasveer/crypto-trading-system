@@ -1,5 +1,5 @@
-#include "CoinbaseDataProcessor.hpp"
-#include "CoinbaseFastParser.hpp"
+#include "coinbase_data_processor.hpp"
+#include "coinbase_fast_parser.hpp"
 #include <thread>
 #include <iostream>
 #include <boost/json.hpp>

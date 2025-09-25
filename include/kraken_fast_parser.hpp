@@ -1,5 +1,4 @@
 #pragma once
-
 #include <cstring>
 #include <cstdint>
 #include <string_view>

@@ -41,31 +41,45 @@ private:
                 quill::Backend::start(backend_options);
             }
 
+            // File sink
             quill::FileSinkConfig file_cfg;
             file_cfg.set_open_mode('a');
             file_cfg.set_filename_append_option(quill::FilenameAppendOption::StartDateTime);
-            
+
             quill::PatternFormatterOptions formatter_options;
             formatter_options.format_pattern = "%(time) [%(log_level)] %(file_name): %(message)";
             formatter_options.timestamp_pattern = "%Y-%m-%d %H:%M:%S.%Qus";
             formatter_options.timestamp_timezone = quill::Timezone::LocalTime;
-
             file_cfg.set_override_pattern_formatter_options(formatter_options);
 
             auto file_sink = quill::Frontend::create_or_get_sink<quill::FileSink>(
-                static_cast<const std::string&>(filename_), 
-                file_cfg ,
-                quill::FileEventNotifier{}
+                filename_, file_cfg, quill::FileEventNotifier{}
             );
 
-            logger_ = quill::Frontend::create_or_get_logger("market_logger", std::move(file_sink));
+            // if(enable_console_log_){
+            //     auto console_sink = quill::Frontend::create_or_get_sink<quill::StreamSink>(        
+            //         "stdout",
+            //         std::filesystem::path{}, 
+            //         stdout);
+
+            //     // Create logger with both sinks
+            //     logger_ = quill::Frontend::create_or_get_logger("market_logger", {file_sink, console_sink});
+            // }
+            // else{
+            //     logger_ = quill::Frontend::create_or_get_logger("market_logger", {file_sink});
+            // }
+            
+            logger_ = quill::Frontend::create_or_get_logger("market_logger", {file_sink});
+
             logger_->set_log_level(quill::LogLevel::Info);
+
         } catch (const std::exception& e) {
             throw std::runtime_error("Logger initialization failed: " + std::string(e.what()));
         }
     }
 
 public:
+    // --- Initialization ---
     static void init(const std::string& custom_filename) {
         std::lock_guard<std::mutex> lock(init_mutex_);
         if (is_initialized_) {
@@ -76,6 +90,7 @@ public:
         }
         filename_ = custom_filename;
         is_initialized_ = true;
+
     }
 
     static Logger& getInstance() {
@@ -92,10 +107,15 @@ public:
     Logger(Logger&&) = delete;
     Logger& operator=(Logger&&) = delete;
 
+    inline void logInfo(const std::string& msg) { LOG_INFO(logger_, "{}", msg); }
+    inline void logWarn(const std::string& msg) { LOG_WARNING(logger_, "{}", msg); }
+    inline void logError(const std::string& msg) { LOG_ERROR(logger_, "{}", msg); }
+    inline void logDebug(const std::string& msg) { LOG_DEBUG(logger_, "{}", msg); }
+
+    quill::Logger* getQuillLogger() { return logger_; }
+
     inline void logTradeEvent(const TradeEvent& event) {
-        auto givenTimePoint = event.data.trade_time;
-        auto nowTimePoint = get_time_now_nano();
-        auto elapsed = nowTimePoint - givenTimePoint;
+        auto elapsed = get_time_now_nano() - event.data.trade_time;
         LOG_INFO(logger_, "TradeEvent: source={}, symbol={}, price={:.6f}, quantity={:.4f}, trade_time={}, elapsed={}",
             event.data.source, event.data.symbol, event.data.price, event.data.quantity,
             event.data.trade_time, elapsed);
@@ -110,9 +130,7 @@ public:
     }
 
     inline void logTickerDataEvent(const TickerDataEvent& event) {
-        auto givenTimePoint = event.data.timestamp;
-        auto nowTimePoint = get_time_now_nano();
-        auto elapsed = nowTimePoint - givenTimePoint;
+        auto elapsed = get_time_now_nano() - event.data.timestamp;
         LOG_INFO(logger_, "TickerDataEvent: source={}, symbol={}, best_ask={:.6f}, best_bid={:.6f}, "
             "high_24h={:.6f}, low_24h={:.6f}, last_price={:.6f}, price_change_24h={:.6f}, elapsed={}",
             event.data.source, event.data.symbol, event.data.best_ask, event.data.best_bid, event.data.high_24h,
@@ -120,9 +138,7 @@ public:
     }
 
     inline void logOrderBookDataEvent(const OrderBookDataEvent& event) {
-        auto givenTimePoint = event.data.timestamp;
-        auto nowTimePoint = get_time_now_nano();
-        auto elapsed = nowTimePoint - givenTimePoint;
+        auto elapsed = get_time_now_nano() - event.data.timestamp;
         LOG_INFO(logger_, "OrderBookDataEvent: source={}, symbol={}, timestamp={}, elapsed={}",
             event.data.source, event.data.symbol, event.data.timestamp, elapsed);
     }
@@ -134,10 +150,15 @@ public:
         event_bus->subscribe<OrderBookDataEvent>([this](const OrderBookDataEvent& e) { this->logOrderBookDataEvent(e); });
     }
 
-    ~Logger() {
+    void setLogLevel(quill::LogLevel level) {
+        logger_->set_log_level(level);
+    }
+
+    static void shutdown() {
+        std::lock_guard<std::mutex> lock(init_mutex_);
         if (is_initialized_) {
-            logger_->flush_log();
             quill::Backend::stop();
+            is_initialized_ = false;
         }
     }
 };

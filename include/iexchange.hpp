@@ -3,11 +3,11 @@
 #include <vector>
 #include <functional>
 #include <boost/json.hpp>
+#include <boost/beast/core/buffers_to_string.hpp>
+#include <boost/asio/connect.hpp>
 
 namespace beast = boost::beast;
 namespace net = boost::asio;
-namespace ssl = net::ssl;
-using tcp = net::ip::tcp;
 namespace json = boost::json;
 
 
@@ -38,7 +38,7 @@ class IExchange {
          *
          * This method should handle the connection, handshake, and message loop.
          */
-        virtual void start_async() = 0;
+        virtual void start() = 0;
 
         /**
          * @brief Runs the io contect of the exchange client.
@@ -68,7 +68,5 @@ class IExchange {
 
 
         virtual net::io_context& get_io_context() = 0;
-
-
 
 };

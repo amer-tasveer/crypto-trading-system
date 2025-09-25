@@ -28,13 +28,14 @@ void KrakenExchange::initialize(const std::string_view& host, const std::string_
     port_ = port;
     target_ = target;
     subscription_info_ = subscription_info;
+
 }
 
 net::io_context& KrakenExchange::get_io_context() {
     return ioc_;
 }
 
-void KrakenExchange::start_async() {
+void KrakenExchange::start() {
     std::cout << "Starting Kraken connection..." << std::endl;
     
     if (subscription_info_.contains("params") && subscription_info_.at("params").is_object()) {
@@ -166,7 +167,7 @@ void KrakenExchange::stop() {
         self->ws_.async_close(websocket::close_code::normal,
             [self](beast::error_code ec){
                 if (ec) std::cerr << "Close: " << ec.message() << "\n";
-                else std::cout << "Closed cleanly\n";
+                else std::cout << "Closed\n";
             });
     });
 }
