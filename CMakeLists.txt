@@ -23,15 +23,15 @@ find_package(quill CONFIG REQUIRED)
 # Add the executable target
 add_executable(${PROJECT_NAME}
     src/main.cpp
-    src/BinancePipeline.cpp
-    src/BinanceExchange.cpp
-    src/BinanceDataProcessor.cpp
-    src/CoinbasePipeline.cpp
-    src/CoinbaseExchange.cpp
-    src/CoinbaseDataProcessor.cpp
-    src/KrakenPipeline.cpp
-    src/KrakenExchange.cpp
-    src/KrakenDataProcessor.cpp
+    src/binance_pipeline.cpp
+    src/binance_exchange.cpp
+    src/binance_data_processor.cpp
+    src/coinbase_pipeline.cpp
+    src/coinbase_exchange.cpp
+    src/coinbase_data_processor.cpp
+    src/kraken_pipeline.cpp
+    src/kraken_exchange.cpp
+    src/kraken_data_processor.cpp
 )
 
 # Include directories
